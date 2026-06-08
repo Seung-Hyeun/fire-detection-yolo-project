@@ -14,7 +14,7 @@ from ultralytics import YOLO
 # 기본 설정
 # =========================
 
-MODEL_PATH = "models/team_best.pt"
+MODEL_PATH = "models/best.pt"
 OUTPUT_DIR = "results/demo_outputs"
 
 # OpenCV 창 제목은 한글이 깨질 수 있어서 영어로 설정
@@ -36,8 +36,11 @@ PANEL_H = 520
 # 영상에서는 confidence가 낮게 나올 수 있어서 낮게 설정
 CONF_THRESHOLD = 0.15
 
-# 모델 클래스명이 대소문자 또는 flame으로 되어 있을 가능성까지 고려
-DANGER_CLASSES = ["fire", "smoke", "Fire", "Smoke", "flame", "Flame"]
+# smoke는 화재 확정이 아니라 주의 상태로 처리
+WARNING_CLASSES = ["smoke", "Smoke"]
+
+# fire/flame은 화재 위험 상태로 처리
+DANGER_CLASSES = ["fire", "Fire", "flame", "Flame"]
 
 # 한 번 감지되면 경고를 몇 초 동안 유지할지 설정
 WARNING_HOLD_SECONDS = 2.0
@@ -168,47 +171,57 @@ def resize_with_padding(image, target_w, target_h):
 
 def draw_ui(frame, danger_detected, detected_texts, max_conf, fps=0.0):
     """
-    시연용 한글 UI 화면 생성
+    발표용으로 정리한 UI 화면 생성
     """
     canvas = np.zeros((CANVAS_HEIGHT, CANVAS_WIDTH, 3), dtype=np.uint8)
-    canvas[:] = (18, 24, 38)
+    canvas[:] = (245, 247, 250)
 
-    # 상단 상태바
+    # 상단 헤더
+    header_color = (35, 55, 85)
+    status_color = (40, 150, 90)
+
     if danger_detected:
-        header_color = (0, 0, 180)
-        header_text = "경고: 화재 위험 감지"
+        status_text = "화재 위험 감지"
+        status_color = (220, 60, 60)
     else:
-        header_color = (0, 120, 0)
-        header_text = "상태: 안전"
+        status_text = "안전 상태"
+        status_color = (40, 150, 90)
 
-    cv2.rectangle(canvas, (0, 0), (CANVAS_WIDTH, 90), header_color, -1)
+    cv2.rectangle(canvas, (0, 0), (CANVAS_WIDTH, 95), header_color, -1)
 
     canvas = draw_korean_text(
         canvas,
-        "AI 실시간 화재 감지 안전 시스템",
-        (40, 15),
+        "AI 화재 감지 안전 시스템",
+        (40, 18),
         FONT_TITLE,
         (255, 255, 255)
     )
 
     canvas = draw_korean_text(
         canvas,
-        header_text,
-        (40, 55),
-        FONT_HEADER,
-        (255, 255, 255)
+        f"현재 상태: {status_text}",
+        (40, 58),
+        FONT_SMALL,
+        (230, 235, 245)
     )
 
-    # 영상 영역 테두리
+    # 영상 영역 카드
     cv2.rectangle(
         canvas,
-        (VIDEO_AREA_X - 4, VIDEO_AREA_Y - 4),
-        (VIDEO_AREA_X + VIDEO_AREA_W + 4, VIDEO_AREA_Y + VIDEO_AREA_H + 4),
-        (90, 120, 180),
+        (VIDEO_AREA_X - 8, VIDEO_AREA_Y - 8),
+        (VIDEO_AREA_X + VIDEO_AREA_W + 8, VIDEO_AREA_Y + VIDEO_AREA_H + 8),
+        (225, 230, 238),
+        -1
+    )
+
+    cv2.rectangle(
+        canvas,
+        (VIDEO_AREA_X - 8, VIDEO_AREA_Y - 8),
+        (VIDEO_AREA_X + VIDEO_AREA_W + 8, VIDEO_AREA_Y + VIDEO_AREA_H + 8),
+        (200, 208, 220),
         2
     )
 
-    # 영상/이미지 삽입
     display_frame = resize_with_padding(frame, VIDEO_AREA_W, VIDEO_AREA_H)
 
     canvas[
@@ -216,12 +229,12 @@ def draw_ui(frame, danger_detected, detected_texts, max_conf, fps=0.0):
         VIDEO_AREA_X:VIDEO_AREA_X + VIDEO_AREA_W
     ] = display_frame
 
-    # 오른쪽 정보 패널
+    # 오른쪽 패널 카드
     cv2.rectangle(
         canvas,
         (PANEL_X, PANEL_Y),
         (PANEL_X + PANEL_W, PANEL_Y + PANEL_H),
-        (30, 36, 52),
+        (255, 255, 255),
         -1
     )
 
@@ -229,81 +242,87 @@ def draw_ui(frame, danger_detected, detected_texts, max_conf, fps=0.0):
         canvas,
         (PANEL_X, PANEL_Y),
         (PANEL_X + PANEL_W, PANEL_Y + PANEL_H),
-        (90, 120, 180),
+        (205, 212, 224),
         2
     )
 
     canvas = draw_korean_text(
         canvas,
         "감지 정보",
-        (PANEL_X + 25, PANEL_Y + 25),
+        (PANEL_X + 25, PANEL_Y + 30),
         FONT_PANEL_TITLE,
-        (255, 255, 255)
+        (40, 50, 65)
     )
 
-    # 상태 표시
-    status_text = "위험" if danger_detected else "안전"
-    status_color = (255, 80, 80) if danger_detected else (80, 255, 80)
+    # 상태 배지
+    badge_color = status_color
+    cv2.rectangle(
+        canvas,
+        (PANEL_X + 25, PANEL_Y + 85),
+        (PANEL_X + 220, PANEL_Y + 130),
+        badge_color,
+        -1
+    )
 
     canvas = draw_korean_text(
         canvas,
-        f"상태: {status_text}",
-        (PANEL_X + 25, PANEL_Y + 90),
-        FONT_NORMAL,
-        status_color
+        status_text,
+        (PANEL_X + 42, PANEL_Y + 94),
+        FONT_SMALL,
+        (255, 255, 255)
     )
 
     canvas = draw_korean_text(
         canvas,
         f"최대 신뢰도: {max_conf:.2f}",
-        (PANEL_X + 25, PANEL_Y + 135),
+        (PANEL_X + 25, PANEL_Y + 170),
         FONT_SMALL,
-        (230, 230, 230)
+        (70, 80, 95)
     )
 
     canvas = draw_korean_text(
         canvas,
         f"처리 속도: {fps:.1f} FPS",
-        (PANEL_X + 25, PANEL_Y + 175),
+        (PANEL_X + 25, PANEL_Y + 210),
         FONT_SMALL,
-        (230, 230, 230)
+        (70, 80, 95)
     )
 
     canvas = draw_korean_text(
         canvas,
-        "감지 항목:",
-        (PANEL_X + 25, PANEL_Y + 235),
-        FONT_SMALL,
-        (255, 255, 255)
+        "감지 항목",
+        (PANEL_X + 25, PANEL_Y + 275),
+        FONT_NORMAL,
+        (40, 50, 65)
     )
 
-    y = PANEL_Y + 275
+    y = PANEL_Y + 320
 
     if detected_texts:
         for text in detected_texts[:6]:
             canvas = draw_korean_text(
                 canvas,
-                f"- {text}",
-                (PANEL_X + 25, y),
+                f"• {text}",
+                (PANEL_X + 30, y),
                 FONT_SMALL,
-                (220, 220, 220)
+                (60, 70, 85)
             )
-            y += 34
+            y += 35
     else:
         canvas = draw_korean_text(
             canvas,
-            "- 감지 없음",
-            (PANEL_X + 25, y),
+            "• 감지 없음",
+            (PANEL_X + 30, y),
             FONT_SMALL,
-            (180, 180, 180)
+            (140, 145, 155)
         )
 
     canvas = draw_korean_text(
         canvas,
-        "ESC 키 또는 X 버튼을 누르면 종료됩니다",
+        "ESC 또는 X 버튼으로 종료",
         (PANEL_X + 25, PANEL_Y + PANEL_H - 45),
         FONT_SMALL,
-        (180, 180, 180)
+        (130, 135, 145)
     )
 
     return canvas
@@ -347,9 +366,11 @@ def run_detection_on_frame(model, frame):
 
         detected_texts.append(f"{display_name}: {conf:.2f}")
         max_conf = max(max_conf, conf)
-
-        if class_name in DANGER_CLASSES or class_name_lower in ["fire", "smoke", "flame"]:
+        if class_name in DANGER_CLASSES or class_name_lower in ["fire", "flame"]:
             danger_detected = True
+
+        if class_name in WARNING_CLASSES or class_name_lower == "smoke":
+            detected_texts.append("주의: 연기 감지")
 
     return annotated_frame, danger_detected, detected_texts, max_conf
 
@@ -371,7 +392,7 @@ def main():
 
     print("모델 클래스:", model.names)
 
-    source_path = select_file()
+    source_path = "results/2번째 테스트.mp4" # source_path = select_file()
 
     if not source_path:
         print("선택된 파일이 없습니다.")
